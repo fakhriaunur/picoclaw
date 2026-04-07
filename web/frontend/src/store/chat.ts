@@ -5,6 +5,12 @@ import {
   writeStoredSessionId,
 } from "@/features/chat/state"
 
+export interface ToolCall {
+  id: string
+  name: string
+  arguments: string
+}
+
 export interface ChatAttachment {
   type: "image"
   url: string
@@ -17,6 +23,7 @@ export interface ChatMessage {
   content: string
   timestamp: number | string
   attachments?: ChatAttachment[]
+  tool_calls?: ToolCall[]
 }
 
 export type ConnectionState =

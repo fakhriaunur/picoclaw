@@ -1,7 +1,7 @@
 import { toast } from "sonner"
 
 import { normalizeUnixTimestamp } from "@/features/chat/state"
-import { updateChatStore } from "@/store/chat"
+import { type ToolCall, updateChatStore } from "@/store/chat"
 
 export interface PicoMessage {
   type: string
@@ -31,6 +31,28 @@ export function handlePicoMessage(
           ? normalizeUnixTimestamp(Number(message.timestamp))
           : Date.now()
 
+      let toolCalls: ToolCall[] | undefined
+      const rawToolCalls = payload.tool_calls
+      if (Array.isArray(rawToolCalls)) {
+        toolCalls = rawToolCalls
+          .map((tc: Record<string, unknown>) => {
+            const fn = tc.function as Record<string, unknown> | undefined
+            if (!fn || typeof fn.name !== "string") return null
+            return {
+              id: (tc.id as string) || "",
+              name: fn.name,
+              arguments:
+                typeof fn.arguments === "string"
+                  ? fn.arguments
+                  : JSON.stringify(fn.arguments ?? {}),
+            }
+          })
+          .filter((tc: ToolCall | null): tc is ToolCall => tc !== null)
+        if (toolCalls.length === 0) {
+          toolCalls = undefined
+        }
+      }
+
       updateChatStore((prev) => ({
         messages: [
           ...prev.messages,
@@ -39,6 +61,7 @@ export function handlePicoMessage(
             role: "assistant",
             content,
             timestamp,
+            tool_calls: toolCalls,
           },
         ],
         isTyping: false,
@@ -53,9 +76,33 @@ export function handlePicoMessage(
         break
       }
 
+      let toolCalls: ToolCall[] | undefined
+      const rawToolCalls = payload.tool_calls
+      if (Array.isArray(rawToolCalls)) {
+        toolCalls = rawToolCalls
+          .map((tc: Record<string, unknown>) => {
+            const fn = tc.function as Record<string, unknown> | undefined
+            if (!fn || typeof fn.name !== "string") return null
+            return {
+              id: (tc.id as string) || "",
+              name: fn.name,
+              arguments:
+                typeof fn.arguments === "string"
+                  ? fn.arguments
+                  : JSON.stringify(fn.arguments ?? {}),
+            }
+          })
+          .filter((tc: ToolCall | null): tc is ToolCall => tc !== null)
+        if (toolCalls.length === 0) {
+          toolCalls = undefined
+        }
+      }
+
       updateChatStore((prev) => ({
         messages: prev.messages.map((msg) =>
-          msg.id === messageId ? { ...msg, content } : msg,
+          msg.id === messageId
+            ? { ...msg, content, tool_calls: toolCalls }
+            : msg,
         ),
       }))
       break
