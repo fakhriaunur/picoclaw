@@ -3220,6 +3220,13 @@ func (al *AgentLoop) buildCommandsRuntime(agent *AgentInstance, opts *processOpt
 			}
 			return nil
 		},
+		StopTurn: func() bool {
+			ts := al.getActiveTurnState(opts.SessionKey)
+			if ts == nil {
+				return false
+			}
+			return ts.requestHardAbort()
+		},
 	}
 	if agent != nil && agent.ContextBuilder != nil {
 		rt.ListSkillNames = agent.ContextBuilder.ListSkillNames

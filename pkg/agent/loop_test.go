@@ -3046,3 +3046,100 @@ func TestProcessMessage_ContextOverflow_AnthropicStyle(t *testing.T) {
 		t.Fatalf("expected 2 calls for retry, got %d", provider.calls)
 	}
 }
+
+func TestStopCommand_CancelsActiveTurn(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         tmpDir,
+				ModelName:         "test-model",
+				MaxTokens:         4096,
+				MaxToolIterations: 10,
+			},
+		},
+		Session: config.SessionConfig{
+			DMScope: "per-channel-peer",
+		},
+	}
+
+	msgBus := bus.NewMessageBus()
+	provider := &countingMockProvider{response: "LLM reply"}
+	al := NewAgentLoop(cfg, msgBus, provider)
+
+	sessionKey := "test-session-1"
+	agent := al.GetRegistry().GetDefaultAgent()
+	opts := processOptions{
+		SessionKey: sessionKey,
+		Channel:    "telegram",
+		ChatID:     "chat-1",
+	}
+	ts := newTurnState(agent, opts, turnEventScope{
+		agentID:    agent.ID,
+		sessionKey: sessionKey,
+		turnID:     "test-turn-1",
+	})
+	al.registerActiveTurn(ts)
+
+	_, turnCancel := context.WithCancel(context.Background())
+	ts.setTurnCancel(turnCancel)
+
+	reply, handled := al.handleCommand(context.Background(), bus.InboundMessage{
+		Channel:    "telegram",
+		SenderID:   "user-1",
+		ChatID:     "chat-1",
+		SessionKey: sessionKey,
+		Content:    "/stop",
+	}, agent, &opts)
+	if !handled {
+		t.Fatal("expected /stop to be handled")
+	}
+	if reply != "Task stopped." {
+		t.Fatalf("reply = %q, want %q", reply, "Task stopped.")
+	}
+	if !ts.hardAbortRequested() {
+		t.Fatal("expected hard abort to be requested on active turn")
+	}
+}
+
+func TestStopCommand_NoActiveTurn(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         tmpDir,
+				ModelName:         "test-model",
+				MaxTokens:         4096,
+				MaxToolIterations: 10,
+			},
+		},
+		Session: config.SessionConfig{
+			DMScope: "per-channel-peer",
+		},
+	}
+
+	msgBus := bus.NewMessageBus()
+	provider := &countingMockProvider{response: "LLM reply"}
+	al := NewAgentLoop(cfg, msgBus, provider)
+
+	agent := al.GetRegistry().GetDefaultAgent()
+	opts := processOptions{
+		SessionKey: "nonexistent-session",
+		Channel:    "telegram",
+		ChatID:     "chat-1",
+	}
+
+	reply, handled := al.handleCommand(context.Background(), bus.InboundMessage{
+		Channel:    "telegram",
+		SenderID:   "user-1",
+		ChatID:     "chat-1",
+		SessionKey: "nonexistent-session",
+		Content:    "/stop",
+	}, agent, &opts)
+	if !handled {
+		t.Fatal("expected /stop to be handled")
+	}
+	if reply != "No active task to stop." {
+		t.Fatalf("reply = %q, want %q", reply, "No active task to stop.")
+	}
+}
